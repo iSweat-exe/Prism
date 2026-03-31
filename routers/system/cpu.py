@@ -1,7 +1,9 @@
+import platform
+
+import psutil
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-import psutil
-import platform
+
 from services.sampler import sampler
 
 router = APIRouter(

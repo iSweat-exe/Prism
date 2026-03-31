@@ -1,6 +1,9 @@
+import aiodocker
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-import aiodocker
+
+from models.schema import ContainerCreate
+from services.docker_service import docker_service
 
 router = APIRouter(
     responses={
@@ -20,19 +23,38 @@ router = APIRouter(
 )
 
 
+async def _get_container(container_id: str) -> aiodocker.containers.DockerContainer:
+    """
+    Helper function to retrieve a Docker container by its ID.
+    Handles client initialization check and 404 errors.
+    """
+    docker = docker_service.client
+    if not docker:
+        raise HTTPException(status_code=500, detail="Docker client not initialized")
+    try:
+        return await docker.containers.get(container_id)
+    except aiodocker.exceptions.DockerError as e:
+        if e.status == 404:
+            raise HTTPException(
+                status_code=404, detail=f"Container {container_id} not found"
+            )
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
 async def list_containers():
     """
-    List all containers with basic information.
+    List all containers with basic information using the shared Docker client.
     """
-    docker = aiodocker.Docker()
-    try:
-        # containers.list() returns a list of dictionaries with basic info
-        list_data = await docker.containers.list(all=True)
-        containers_info = []
-        for c in list_data:
-            # c is a DockerContainer object, its raw data is in c._container
-            data = c._container
-            containers_info.append({
+    docker = docker_service.client
+    if not docker:
+        raise RuntimeError("Docker client not initialized")
+
+    list_data = await docker.containers.list(all=True)
+    containers_info = []
+    for c in list_data:
+        data = c._container
+        containers_info.append(
+            {
                 "id": data.get("Id", "")[:12],
                 "full_id": data.get("Id", ""),
                 "names": [name.lstrip("/") for name in data.get("Names", [])],
@@ -40,10 +62,9 @@ async def list_containers():
                 "state": data.get("State"),
                 "status": data.get("Status"),
                 "created": data.get("Created"),
-            })
-        return containers_info
-    finally:
-        await docker.close()
+            }
+        )
+    return containers_info
 
 
 @router.get("")
@@ -64,19 +85,99 @@ async def get_containers():
         )
 
 
+@router.post("/create")
+async def create_container(config: ContainerCreate):
+    """
+    Endpoint to create and optionally start a new container.
+    """
+    docker = docker_service.client
+    if not docker:
+        raise HTTPException(status_code=500, detail="Docker client not initialized")
+
+    # HostConfig transformation for ports and volumes
+    host_config = {}
+
+    if config.ports:
+        port_bindings = {}
+        for container_port, host_port in config.ports.items():
+            # Add /tcp if protocol is missing
+            if "/" not in container_port:
+                container_port = f"{container_port}/tcp"
+            port_bindings[container_port] = [{"HostPort": str(host_port)}]
+        host_config["PortBindings"] = port_bindings
+
+    if config.volumes:
+        host_config["Binds"] = config.volumes
+
+    # Final Docker API configuration
+    docker_config = {
+        "Image": config.image,
+        "Cmd": config.command,
+        "Env": config.environment,
+        "HostConfig": host_config,
+    }
+
+    try:
+        try:
+            # Try to create the container
+            container = await docker.containers.create(
+                config=docker_config, name=config.name
+            )
+        except aiodocker.exceptions.DockerError as e:
+            # If the image is missing, attempt to pull it automatically
+            if e.status == 404 and "No such image" in str(e):
+                try:
+                    # Note: docker.images.pull handles names
+                    # with tags (e.g., "nginx:latest")
+                    await docker.images.pull(config.image)
+                    # Retry creation after successful pull
+                    container = await docker.containers.create(
+                        config=docker_config, name=config.name
+                    )
+                except Exception as pull_err:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=(
+                            f"Image {config.image} not found locally and "
+                            f"auto-pull failed: {str(pull_err)}"
+                        ),
+                    )
+            else:
+                raise HTTPException(status_code=e.status, detail=str(e))
+
+        # After successful creation (or after pull and retry)
+        if config.start_after_creation:
+            await container.start()
+
+        return {
+            "id": container.id,
+            "name": config.name or container.id[:12],
+            "message": "Container created and started successfully"
+            if config.start_after_creation
+            else "Container created successfully",
+        }
+    except HTTPException:
+        # Re-raise HTTPExceptions (from our internal handle)
+        raise
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "docker_create_error",
+                "message": str(e),
+                "path": "/docker/containers/create",
+            },
+        )
+
+
 @router.get("/{container_id}")
 async def get_container_details(container_id: str):
     """
     Endpoint to get detailed information about a container.
     """
-    docker = aiodocker.Docker()
+    container = await _get_container(container_id)
     try:
-        container = await docker.containers.get(container_id)
         return await container.show()
-    except aiodocker.exceptions.DockerError as e:
-        if e.status == 404:
-            raise HTTPException(status_code=404, detail="Container not found")
-        raise HTTPException(status_code=e.status, detail=str(e))
     except Exception as e:
         return JSONResponse(
             status_code=500,
@@ -86,8 +187,6 @@ async def get_container_details(container_id: str):
                 "path": f"/docker/containers/{container_id}",
             },
         )
-    finally:
-        await docker.close()
 
 
 @router.post("/{container_id}/start")
@@ -95,15 +194,12 @@ async def start_container(container_id: str):
     """
     Endpoint to start a container.
     """
-    docker = aiodocker.Docker()
+    container = await _get_container(container_id)
     try:
-        container = await docker.containers.get(container_id)
         await container.start()
-        return {"message": "Container started successfully"}
+        return {"message": f"Container {container_id} started successfully"}
     except aiodocker.exceptions.DockerError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
-    finally:
-        await docker.close()
 
 
 @router.post("/{container_id}/stop")
@@ -111,15 +207,12 @@ async def stop_container(container_id: str):
     """
     Endpoint to stop a container.
     """
-    docker = aiodocker.Docker()
+    container = await _get_container(container_id)
     try:
-        container = await docker.containers.get(container_id)
         await container.stop()
-        return {"message": "Container stopped successfully"}
+        return {"message": f"Container {container_id} stopped successfully"}
     except aiodocker.exceptions.DockerError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
-    finally:
-        await docker.close()
 
 
 @router.post("/{container_id}/restart")
@@ -127,15 +220,12 @@ async def restart_container(container_id: str):
     """
     Endpoint to restart a container.
     """
-    docker = aiodocker.Docker()
+    container = await _get_container(container_id)
     try:
-        container = await docker.containers.get(container_id)
         await container.restart()
-        return {"message": "Container restarted successfully"}
+        return {"message": f"Container {container_id} restarted successfully"}
     except aiodocker.exceptions.DockerError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
-    finally:
-        await docker.close()
 
 
 @router.get("/{container_id}/logs")
@@ -143,15 +233,12 @@ async def get_container_logs(container_id: str, tail: int = 100):
     """
     Endpoint to get container logs.
     """
-    docker = aiodocker.Docker()
+    container = await _get_container(container_id)
     try:
-        container = await docker.containers.get(container_id)
         logs = await container.log(stdout=True, stderr=True, tail=tail)
         return {"logs": logs}
     except aiodocker.exceptions.DockerError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
-    finally:
-        await docker.close()
 
 
 @router.delete("/{container_id}")
@@ -159,15 +246,12 @@ async def delete_container(container_id: str, force: bool = False, v: bool = Fal
     """
     Endpoint to delete a container.
     """
-    docker = aiodocker.Docker()
+    container = await _get_container(container_id)
     try:
-        container = await docker.containers.get(container_id)
         await container.delete(force=force, v=v)
         return {"message": f"Container {container_id} deleted successfully"}
     except aiodocker.exceptions.DockerError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
-    finally:
-        await docker.close()
 
 
 @router.get("/{container_id}/stats")
@@ -175,14 +259,10 @@ async def get_container_stats(container_id: str):
     """
     Endpoint to get a snapshot of container statistics.
     """
-    docker = aiodocker.Docker()
+    container = await _get_container(container_id)
     try:
-        container = await docker.containers.get(container_id)
         # stream=False provides a single snapshot
         stats = await container.stats(stream=False)
-        # Ensure we return a single dict, not a list with one dict
         return stats[0] if isinstance(stats, list) and len(stats) > 0 else stats
     except aiodocker.exceptions.DockerError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
-    finally:
-        await docker.close()

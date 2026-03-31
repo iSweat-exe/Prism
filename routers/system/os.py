@@ -1,8 +1,9 @@
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
 import platform
 import socket
+
 import psutil
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 router = APIRouter(
     responses={
@@ -32,7 +33,7 @@ def get_load_average() -> tuple:
 def get_kernel_version() -> str:
     try:
         return platform.version().split(".")[2].split(" ")[0]
-    except (IndexError, AttributeError):
+    except IndexError, AttributeError:
         return platform.version() or "Unknown"
 
 

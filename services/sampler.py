@@ -1,9 +1,10 @@
-import psutil
-import time
+import ctypes
+import platform
 import socket
 import threading
-import platform
-import ctypes
+import time
+
+import psutil
 
 
 class SystemSampler:
@@ -52,7 +53,7 @@ class SystemSampler:
             info = cpuinfo.get_cpu_info()
             brand = info.get("brand_raw", platform.processor())
             vendor_id = info.get("vendor_id_raw", "Unknown")
-        except (ImportError, Exception):
+        except ImportError, Exception:
             brand = platform.processor() or "Unknown"
 
         with self._lock:
@@ -145,7 +146,7 @@ class SystemSampler:
                                 "memory_percent": info["memory_percent"] or 0.0,
                             }
                         )
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    except psutil.NoSuchProcess, psutil.AccessDenied:
                         continue
 
                 temp_procs.sort(key=lambda x: x["memory"], reverse=True)
@@ -191,7 +192,7 @@ class SystemSampler:
                                 "health": "Unknown",
                             }
                         )
-                    except (PermissionError, FileNotFoundError):
+                    except PermissionError, FileNotFoundError:
                         continue
 
                 io = psutil.disk_io_counters(perdisk=False)
