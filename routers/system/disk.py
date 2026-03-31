@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-import psutil
+
 from services.sampler import sampler
 
 router = APIRouter(
@@ -10,15 +10,16 @@ router = APIRouter(
             "content": {
                 "application/json": {
                     "example": {
-                        "error":   "internal_server_error",
+                        "error": "internal_server_error",
                         "message": "Error details",
-                        "path":    "/system/disk",
+                        "path": "/system/disk",
                     }
                 }
-            }
+            },
         }
     }
 )
+
 
 @router.get("")
 def get_disk():
@@ -30,7 +31,7 @@ def get_disk():
             raise RuntimeError("No accessible disk partitions found")
 
         return {
-            "global_io_read_bps":    disk_cache["io"]["read_bytes"],
+            "global_io_read_bps": disk_cache["io"]["read_bytes"],
             "global_io_written_bps": disk_cache["io"]["write_bytes"],
             "disks": partitions,
         }
@@ -39,17 +40,17 @@ def get_disk():
         return JSONResponse(
             status_code=500,
             content={
-                "error":   "disk_data_unavailable",
+                "error": "disk_data_unavailable",
                 "message": str(e),
-                "path":    "/system/disk",
-            }
+                "path": "/system/disk",
+            },
         )
     except Exception as e:
         return JSONResponse(
             status_code=500,
             content={
-                "error":   "internal_server_error",
+                "error": "internal_server_error",
                 "message": str(e),
-                "path":    "/system/disk",
-            }
+                "path": "/system/disk",
+            },
         )
