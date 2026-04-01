@@ -1,11 +1,15 @@
+import os
+
+if os.path.exists("/host/proc"):
+    os.environ["PROCFS_PATH"] = "/host/proc"
+
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 
 from routers.api import api_info
-from routers.docker import containers, images
-from routers.system import cpu, disk, network, os, ram, uptime
+from routers import docker, system
 from services.docker_service import docker_service
 
 
@@ -31,39 +35,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+v1 = APIRouter(prefix="/v1")
 
-@app.get("/system")
+@v1.get("/system")
 def get_system():
     return {
         "api": api_info(),
-        "os": os.get_os(),
-        "uptime": uptime.get_uptime(),
-        "cpu": cpu.get_cpu(),
-        "ram": ram.get_ram(),
-        "disk": disk.get_disk(),
-        "network": network.get_network(),
+        "os": system.os.get_os(),
+        "uptime": system.uptime.get_uptime(),
+        "cpu": system.cpu.get_cpu(),
+        "ram": system.ram.get_ram(),
+        "disk": system.disk.get_disk(),
+        "network": system.network.get_network(),
     }
 
 
-async def get_docker():
-    return {
-        "containers": await containers.list_containers(),
-    }
+v1.include_router(system.router, prefix="/system")
+v1.include_router(docker.router, prefix="/docker")
 
+app.include_router(v1)
 
-app.include_router(cpu.router, prefix="/system/cpu", tags=["System Cpu"])
-app.include_router(ram.router, prefix="/system/ram", tags=["System Ram"])
-app.include_router(disk.router, prefix="/system/disk", tags=["System Disk"])
-app.include_router(network.router, prefix="/system/network", tags=["System Network"])
-app.include_router(os.router, prefix="/system/os", tags=["System Os"])
-app.include_router(uptime.router, prefix="/system/uptime", tags=["System Uptime"])
-
-app.include_router(
-    containers.router, prefix="/docker/containers", tags=["Docker Containers"]
-)
-app.include_router(images.router, prefix="/docker/images", tags=["Docker Images"])
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8081)
+    uvicorn.run(app, host="0.0.0.0", port=8081)

@@ -1,8 +1,10 @@
 import socket
+import asyncio
+import json
 
 import psutil
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from services.sampler import sampler
 
@@ -88,25 +90,29 @@ def build_interfaces(addrs: dict, net_cache: dict) -> list:
     return interfaces
 
 
+def fetch_network_data():
+    net_cache, sample_error = sampler.get_net_cache()
+
+    # If the sampling thread is in error, bubble it up
+    if sample_error:
+        raise RuntimeError(sample_error)
+
+    if not net_cache:
+        raise RuntimeError("Network cache empty, sampler starting...")
+
+    addrs = psutil.net_if_addrs()
+    interfaces = build_interfaces(addrs, net_cache)
+
+    return {
+        "global": {"latency_ms": sampler.get_latency()},
+        "interfaces": interfaces,
+    }
+
+
 @router.get("")
 def get_network():
     try:
-        net_cache, sample_error = sampler.get_net_cache()
-
-        # If the sampling thread is in error, bubble it up
-        if sample_error:
-            raise RuntimeError(sample_error)
-
-        if not net_cache:
-            raise RuntimeError("Network cache empty, sampler starting...")
-
-        addrs = psutil.net_if_addrs()
-        interfaces = build_interfaces(addrs, net_cache)
-
-        return {
-            "global": {"latency_ms": sampler.get_latency()},
-            "interfaces": interfaces,
-        }
+        return fetch_network_data()
 
     except RuntimeError as e:
         return JSONResponse(
@@ -126,3 +132,19 @@ def get_network():
                 "path": "/system/network",
             },
         )
+
+
+async def network_streamer():
+    while True:
+        try:
+            data = fetch_network_data()
+            yield f"data: {json.dumps(data)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        await asyncio.sleep(1)
+
+
+@router.get("/stream")
+async def stream_network():
+    return StreamingResponse(network_streamer(), media_type="text/event-stream")
+

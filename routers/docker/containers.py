@@ -1,4 +1,6 @@
+import os
 import aiodocker
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -21,6 +23,25 @@ router = APIRouter(
         }
     }
 )
+
+INTERNAL_CONTAINERS = [
+    f"/{os.getenv('APP_NAME', 'prism-api')}",
+    f"/{os.getenv('GATEWAY_NAME', 'nginx-proxy')}",
+]
+
+
+def _is_protected(container_info: dict) -> bool:
+    """
+    Check if a container is protected from destructive operations.
+    Protection is based on INTERNAL_CONTAINERS list and 'prism.protected' label.
+    """
+    name = container_info.get("Name", "")
+    labels = container_info.get("Config", {}).get("Labels", {})
+
+    return any(name == ic for ic in INTERNAL_CONTAINERS) or labels.get(
+        "prism.protected"
+    ) == "true"
+
 
 
 async def _get_container(container_id: str) -> aiodocker.containers.DockerContainer:
@@ -208,11 +229,20 @@ async def stop_container(container_id: str):
     Endpoint to stop a container.
     """
     container = await _get_container(container_id)
+    container_info = await container.show()
+
+    if _is_protected(container_info):
+        raise HTTPException(
+            status_code=403,
+            detail="Self-destruction or Gateway interruption is forbidden!",
+        )
+
     try:
         await container.stop()
         return {"message": f"Container {container_id} stopped successfully"}
     except aiodocker.exceptions.DockerError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
+
 
 
 @router.post("/{container_id}/restart")
@@ -221,11 +251,20 @@ async def restart_container(container_id: str):
     Endpoint to restart a container.
     """
     container = await _get_container(container_id)
+    container_info = await container.show()
+
+    if _is_protected(container_info):
+        raise HTTPException(
+            status_code=403,
+            detail="Self-destruction or Gateway interruption is forbidden!",
+        )
+
     try:
         await container.restart()
         return {"message": f"Container {container_id} restarted successfully"}
     except aiodocker.exceptions.DockerError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
+
 
 
 @router.get("/{container_id}/logs")
@@ -247,11 +286,20 @@ async def delete_container(container_id: str, force: bool = False, v: bool = Fal
     Endpoint to delete a container.
     """
     container = await _get_container(container_id)
+    container_info = await container.show()
+
+    if _is_protected(container_info):
+        raise HTTPException(
+            status_code=403,
+            detail="Self-destruction or Gateway destruction is forbidden!",
+        )
+
     try:
         await container.delete(force=force, v=v)
         return {"message": f"Container {container_id} deleted successfully"}
     except aiodocker.exceptions.DockerError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
+
 
 
 @router.get("/{container_id}/stats")

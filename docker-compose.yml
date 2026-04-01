@@ -1,0 +1,29 @@
+services:
+  api-service:
+    build: .
+    container_name: prism-api
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    environment:
+      - PORT=8081
+      - APP_NAME=prism-api
+      - GATEWAY_NAME=nginx-proxy
+      - PROCFS_PATH=/host/proc
+    labels:
+      - "prism.managed=true"
+      - "prism.protected=true"
+
+  # Nginx Reverse Proxy
+  gateway:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api-service

@@ -1,8 +1,10 @@
 import platform
+import asyncio
+import json
 
 import psutil
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from services.sampler import sampler
 
@@ -48,50 +50,54 @@ def get_temperatures() -> list:
         return []
 
 
+def fetch_cpu_data():
+    freq = psutil.cpu_freq(percpu=False)
+    freqs = psutil.cpu_freq(percpu=True) or []
+    usages = sampler.get_cpu_usage()
+    brand = get_cpu_brand()
+    vendor_id = get_vendor_id()
+
+    if not freq:
+        raise RuntimeError("Unable to retrieve CPU frequency")
+
+    if not usages:
+        raise RuntimeError("Unable to retrieve CPU usage")
+
+    cores = [
+        {
+            "index": i,
+            "name": f"CPU {i + 1}",
+            "usage": usages[i],
+            "frequency": int(freqs[i].current)
+            if i < len(freqs)
+            else int(freq.current),
+            "brand": brand,
+            "vendor_id": vendor_id,
+        }
+        for i in range(len(usages))
+    ]
+
+    return {
+        "global": {
+            "usage": round(sum(usages) / len(usages), 2),
+            "logical_cores": psutil.cpu_count(logical=True),
+            "physical_cores": psutil.cpu_count(logical=False),
+            "avg_frequency": int(freq.current),
+            "min_frequency": int(freq.min),
+            "max_frequency": int(freq.max),
+            "arch": platform.machine(),
+            "brand": brand,
+            "vendor_id": vendor_id,
+        },
+        "cores": cores,
+        "temperatures": get_temperatures(),
+    }
+
+
 @router.get("")
 def get_cpu():
     try:
-        freq = psutil.cpu_freq(percpu=False)
-        freqs = psutil.cpu_freq(percpu=True) or []
-        usages = sampler.get_cpu_usage()
-        brand = get_cpu_brand()
-        vendor_id = get_vendor_id()
-
-        if not freq:
-            raise RuntimeError("Unable to retrieve CPU frequency")
-
-        if not usages:
-            raise RuntimeError("Unable to retrieve CPU usage")
-
-        cores = [
-            {
-                "index": i,
-                "name": f"CPU {i + 1}",
-                "usage": usages[i],
-                "frequency": int(freqs[i].current)
-                if i < len(freqs)
-                else int(freq.current),
-                "brand": brand,
-                "vendor_id": vendor_id,
-            }
-            for i in range(len(usages))
-        ]
-
-        return {
-            "global": {
-                "usage": round(sum(usages) / len(usages), 2),
-                "logical_cores": psutil.cpu_count(logical=True),
-                "physical_cores": psutil.cpu_count(logical=False),
-                "avg_frequency": int(freq.current),
-                "min_frequency": int(freq.min),
-                "max_frequency": int(freq.max),
-                "arch": platform.machine(),
-                "brand": brand,
-                "vendor_id": vendor_id,
-            },
-            "cores": cores,
-            "temperatures": get_temperatures(),
-        }
+        return fetch_cpu_data()
 
     except RuntimeError as e:
         return JSONResponse(
@@ -111,3 +117,19 @@ def get_cpu():
                 "path": "/system/cpu",
             },
         )
+
+
+async def cpu_streamer():
+    while True:
+        try:
+            data = fetch_cpu_data()
+            yield f"data: {json.dumps(data)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        await asyncio.sleep(1)
+
+
+@router.get("/stream")
+async def stream_cpu():
+    return StreamingResponse(cpu_streamer(), media_type="text/event-stream")
+
