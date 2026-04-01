@@ -4,6 +4,9 @@ import traceback
 
 if os.path.exists("/host/proc"):
     os.environ["PROCFS_PATH"] = "/host/proc"
+if os.path.exists("/host/sys"):
+    os.environ["HOST_SYS"] = "/host/sys"
+
 
 from contextlib import asynccontextmanager
 
@@ -92,5 +95,5 @@ app.include_router(v1)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8081)
+    uvicorn.run(app, host="0.0.0.0", port=8081)
 
