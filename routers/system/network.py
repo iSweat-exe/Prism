@@ -26,6 +26,9 @@ router = APIRouter(
 )
 
 
+from services.logger import logger
+
+
 def build_interfaces(addrs: dict, net_cache: dict) -> list:
     af_link = psutil.AF_LINK
     interfaces = []
@@ -95,10 +98,10 @@ def fetch_network_data():
 
     # If the sampling thread is in error, bubble it up
     if sample_error:
-        raise RuntimeError(sample_error)
+        raise RuntimeError(f"Sampler error: {sample_error}")
 
     if not net_cache:
-        raise RuntimeError("Network cache empty, sampler starting...")
+        raise RuntimeError("Network cache empty")
 
     addrs = psutil.net_if_addrs()
     interfaces = build_interfaces(addrs, net_cache)
@@ -115,20 +118,22 @@ def get_network():
         return fetch_network_data()
 
     except RuntimeError as e:
+        logger.error(f"Runtime error in get_network: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "network_data_unavailable",
-                "message": str(e),
+                "message": "Unable to retrieve network data",
                 "path": "/system/network",
             },
         )
     except Exception as e:
+        logger.error(f"Unexpected error in get_network: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "internal_server_error",
-                "message": str(e),
+                "message": "An unexpected error occurred",
                 "path": "/system/network",
             },
         )
@@ -140,8 +145,10 @@ async def network_streamer():
             data = fetch_network_data()
             yield f"data: {json.dumps(data)}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            logger.error(f"Error in network_streamer: {e}")
+            yield f"data: {json.dumps({'error': 'stream_interrupted', 'message': 'Unable to stream network data'})}\n\n"
         await asyncio.sleep(1)
+
 
 
 @router.get("/stream")

@@ -6,6 +6,8 @@ from fastapi.responses import JSONResponse
 
 from models.schema import ContainerCreate
 from services.docker_service import docker_service
+from services.logger import logger
+
 
 router = APIRouter(
     responses={
@@ -59,7 +61,9 @@ async def _get_container(container_id: str) -> aiodocker.containers.DockerContai
             raise HTTPException(
                 status_code=404, detail=f"Container {container_id} not found"
             )
-        raise HTTPException(status_code=e.status, detail=str(e))
+        logger.error(f"Docker error in _get_container: {e}")
+        raise HTTPException(status_code=e.status, detail="Docker communication error")
+
 
 
 async def list_containers():
@@ -96,14 +100,16 @@ async def get_containers():
     try:
         return await list_containers()
     except Exception as e:
+        logger.error(f"Error listing containers: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "docker_list_error",
-                "message": str(e),
+                "message": "Unable to list containers",
                 "path": "/docker/containers",
             },
         )
+
 
 
 @router.post("/create")
@@ -164,7 +170,9 @@ async def create_container(config: ContainerCreate):
                         ),
                     )
             else:
-                raise HTTPException(status_code=e.status, detail=str(e))
+                logger.error(f"Docker error in create_container: {e}")
+                raise HTTPException(status_code=e.status, detail="Docker creation error")
+
 
         # After successful creation (or after pull and retry)
         if config.start_after_creation:
@@ -181,14 +189,16 @@ async def create_container(config: ContainerCreate):
         # Re-raise HTTPExceptions (from our internal handle)
         raise
     except Exception as e:
+        logger.error(f"Error creating container: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "docker_create_error",
-                "message": str(e),
+                "message": "An error occurred during container creation",
                 "path": "/docker/containers/create",
             },
         )
+
 
 
 @router.get("/{container_id}")
@@ -200,14 +210,16 @@ async def get_container_details(container_id: str):
     try:
         return await container.show()
     except Exception as e:
+        logger.error(f"Error inspecting container {container_id}: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "docker_inspect_error",
-                "message": str(e),
+                "message": "Unable to retrieve container details",
                 "path": f"/docker/containers/{container_id}",
             },
         )
+
 
 
 @router.post("/{container_id}/start")
@@ -220,7 +232,9 @@ async def start_container(container_id: str):
         await container.start()
         return {"message": f"Container {container_id} started successfully"}
     except aiodocker.exceptions.DockerError as e:
-        raise HTTPException(status_code=e.status, detail=str(e))
+        logger.error(f"Error starting container {container_id}: {e}")
+        raise HTTPException(status_code=e.status, detail="Docker start error")
+
 
 
 @router.post("/{container_id}/stop")
@@ -241,7 +255,9 @@ async def stop_container(container_id: str):
         await container.stop()
         return {"message": f"Container {container_id} stopped successfully"}
     except aiodocker.exceptions.DockerError as e:
-        raise HTTPException(status_code=e.status, detail=str(e))
+        logger.error(f"Error stopping container {container_id}: {e}")
+        raise HTTPException(status_code=e.status, detail="Docker stop error")
+
 
 
 
@@ -263,7 +279,9 @@ async def restart_container(container_id: str):
         await container.restart()
         return {"message": f"Container {container_id} restarted successfully"}
     except aiodocker.exceptions.DockerError as e:
-        raise HTTPException(status_code=e.status, detail=str(e))
+        logger.error(f"Error restarting container {container_id}: {e}")
+        raise HTTPException(status_code=e.status, detail="Docker restart error")
+
 
 
 
@@ -277,7 +295,9 @@ async def get_container_logs(container_id: str, tail: int = 100):
         logs = await container.log(stdout=True, stderr=True, tail=tail)
         return {"logs": logs}
     except aiodocker.exceptions.DockerError as e:
-        raise HTTPException(status_code=e.status, detail=str(e))
+        logger.error(f"Error retrieving logs for {container_id}: {e}")
+        raise HTTPException(status_code=e.status, detail="Docker logs error")
+
 
 
 @router.delete("/{container_id}")
@@ -298,7 +318,9 @@ async def delete_container(container_id: str, force: bool = False, v: bool = Fal
         await container.delete(force=force, v=v)
         return {"message": f"Container {container_id} deleted successfully"}
     except aiodocker.exceptions.DockerError as e:
-        raise HTTPException(status_code=e.status, detail=str(e))
+        logger.error(f"Error deleting container {container_id}: {e}")
+        raise HTTPException(status_code=e.status, detail="Docker deletion error")
+
 
 
 
@@ -313,4 +335,6 @@ async def get_container_stats(container_id: str):
         stats = await container.stats(stream=False)
         return stats[0] if isinstance(stats, list) and len(stats) > 0 else stats
     except aiodocker.exceptions.DockerError as e:
-        raise HTTPException(status_code=e.status, detail=str(e))
+        logger.error(f"Error retrieving stats for {container_id}: {e}")
+        raise HTTPException(status_code=e.status, detail="Docker stats error")
+

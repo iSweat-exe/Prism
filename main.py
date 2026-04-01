@@ -1,30 +1,62 @@
 import os
+import time
+import traceback
 
 if os.path.exists("/host/proc"):
     os.environ["PROCFS_PATH"] = "/host/proc"
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from routers.api import api_info
 from routers import docker, system
 from services.docker_service import docker_service
+from services.logger import logger
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize the docker client
+    logger.info("Starting PrismAPI...")
     docker_service.init()
     yield
-    # Shutdown: Close the docker client
+    logger.info("Stopping PrismAPI...")
     await docker_service.close()
 
 
 app = FastAPI(
     redirect_slashes=False, title="PrismAPI", version="1.0.0", lifespan=lifespan
 )
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    duration = time.time() - start_time
+    logger.info(
+        f"{request.method} {request.url.path} - {response.status_code} ({duration:.3f}s)"
+    )
+    return response
+
+
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        f"Unhandled exception on {request.method} {request.url.path}: {str(exc)}\n"
+        f"{traceback.format_exc()}"
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "internal_server_error",
+            "message": "An unexpected error occurred.",
+        },
+    )
+
 
 #! EDIT BEFORE PRODUCTION
 app.add_middleware(
@@ -36,6 +68,7 @@ app.add_middleware(
 )
 
 v1 = APIRouter(prefix="/v1")
+
 
 @v1.get("/system")
 def get_system():
@@ -59,4 +92,5 @@ app.include_router(v1)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8081)
+    uvicorn.run(app, host="127.0.0.1", port=8081)
+

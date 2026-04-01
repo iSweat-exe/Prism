@@ -26,6 +26,9 @@ router = APIRouter(
 )
 
 
+from services.logger import logger
+
+
 def get_cpu_brand() -> str:
     return sampler.get_cpu_metadata()["brand"]
 
@@ -58,10 +61,10 @@ def fetch_cpu_data():
     vendor_id = get_vendor_id()
 
     if not freq:
-        raise RuntimeError("Unable to retrieve CPU frequency")
+        raise RuntimeError("CPU frequency unavailable")
 
     if not usages:
-        raise RuntimeError("Unable to retrieve CPU usage")
+        raise RuntimeError("CPU usage unavailable")
 
     cores = [
         {
@@ -100,20 +103,22 @@ def get_cpu():
         return fetch_cpu_data()
 
     except RuntimeError as e:
+        logger.error(f"Runtime error in get_cpu: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "cpu_data_unavailable",
-                "message": str(e),
+                "message": "Unable to retrieve CPU data",
                 "path": "/system/cpu",
             },
         )
     except Exception as e:
+        logger.error(f"Unexpected error in get_cpu: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "internal_server_error",
-                "message": str(e),
+                "message": "An unexpected error occurred",
                 "path": "/system/cpu",
             },
         )
@@ -125,8 +130,10 @@ async def cpu_streamer():
             data = fetch_cpu_data()
             yield f"data: {json.dumps(data)}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            logger.error(f"Error in cpu_streamer: {e}")
+            yield f"data: {json.dumps({'error': 'stream_interrupted', 'message': 'Unable to stream CPU data'})}\n\n"
         await asyncio.sleep(1)
+
 
 
 @router.get("/stream")
