@@ -10,12 +10,12 @@ if os.path.exists("/host/sys"):
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from routers.api import api_info
 from routers import docker, system
+from routers.api import api_info
 from services.docker_service import docker_service
 from services.logger import logger
 
@@ -29,9 +29,8 @@ async def lifespan(app: FastAPI):
     await docker_service.close()
 
 
-app = FastAPI(
-    redirect_slashes=False, title="PrismAPI", version="1.0.0", lifespan=lifespan
-)
+app = FastAPI(redirect_slashes=False, title="PrismAPI", version="1.0.0", lifespan=lifespan)
+
 
 # Request logging middleware
 @app.middleware("http")
@@ -39,19 +38,14 @@ async def log_requests(request: Request, call_next):
     start_time = time.time()
     response = await call_next(request)
     duration = time.time() - start_time
-    logger.info(
-        f"{request.method} {request.url.path} - {response.status_code} ({duration:.3f}s)"
-    )
+    logger.info(f"{request.method} {request.url.path} - {response.status_code} ({duration:.3f}s)")
     return response
 
 
 # Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(
-        f"Unhandled exception on {request.method} {request.url.path}: {str(exc)}\n"
-        f"{traceback.format_exc()}"
-    )
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {str(exc)}\n{traceback.format_exc()}")
     return JSONResponse(
         status_code=500,
         content={
@@ -96,4 +90,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8081)
-

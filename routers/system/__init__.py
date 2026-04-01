@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+
 from . import cpu, disk, network, os, ram, uptime
 
 router = APIRouter()

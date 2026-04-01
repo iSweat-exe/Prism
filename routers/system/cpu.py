@@ -1,11 +1,12 @@
-import platform
 import asyncio
 import json
+import platform
 
 import psutil
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from services.logger import logger
 from services.sampler import sampler
 
 router = APIRouter(
@@ -24,9 +25,6 @@ router = APIRouter(
         }
     }
 )
-
-
-from services.logger import logger
 
 
 def get_cpu_brand() -> str:
@@ -71,9 +69,7 @@ def fetch_cpu_data():
             "index": i,
             "name": f"CPU {i + 1}",
             "usage": usages[i],
-            "frequency": int(freqs[i].current)
-            if i < len(freqs)
-            else int(freq.current),
+            "frequency": int(freqs[i].current) if i < len(freqs) else int(freq.current),
             "brand": brand,
             "vendor_id": vendor_id,
         }
@@ -135,8 +131,6 @@ async def cpu_streamer():
         await asyncio.sleep(1)
 
 
-
 @router.get("/stream")
 async def stream_cpu():
     return StreamingResponse(cpu_streamer(), media_type="text/event-stream")
-

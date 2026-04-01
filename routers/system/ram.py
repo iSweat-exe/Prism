@@ -1,9 +1,11 @@
-import psutil
 import asyncio
 import json
+
+import psutil
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from services.logger import logger
 from services.sampler import sampler
 
 router = APIRouter(
@@ -22,9 +24,6 @@ router = APIRouter(
         }
     }
 )
-
-
-from services.logger import logger
 
 
 def get_top_processes() -> list:
@@ -110,8 +109,6 @@ async def ram_streamer():
         await asyncio.sleep(1)
 
 
-
 @router.get("/stream")
 async def stream_ram():
     return StreamingResponse(ram_streamer(), media_type="text/event-stream")
-

@@ -52,8 +52,7 @@ def get_os():
         return {
             "hostname": get_hostname(),
             "os_name": platform.system() or "Unknown",
-            "os_version": f"{platform.system()} {platform.release()}".strip()
-            or "Unknown",
+            "os_version": f"{platform.system()} {platform.release()}".strip() or "Unknown",
             "kernel_version": get_kernel_version(),
             "arch": platform.machine() or "Unknown",
             "distribution_id": platform.system().lower() or "unknown",

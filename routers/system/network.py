@@ -1,11 +1,12 @@
-import socket
 import asyncio
 import json
+import socket
 
 import psutil
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from services.logger import logger
 from services.sampler import sampler
 
 router = APIRouter(
@@ -26,9 +27,6 @@ router = APIRouter(
 )
 
 
-from services.logger import logger
-
-
 def build_interfaces(addrs: dict, net_cache: dict) -> list:
     af_link = psutil.AF_LINK
     interfaces = []
@@ -42,18 +40,10 @@ def build_interfaces(addrs: dict, net_cache: dict) -> list:
                 if addr.family == af_link:
                     mac_address = addr.address
                 elif addr.family == socket.AF_INET:
-                    prefix = (
-                        sum(bin(int(x)).count("1") for x in addr.netmask.split("."))
-                        if addr.netmask
-                        else 24
-                    )
+                    prefix = sum(bin(int(x)).count("1") for x in addr.netmask.split(".")) if addr.netmask else 24
                     ip_networks.append({"addr": addr.address, "prefix": prefix})
                 elif addr.family == socket.AF_INET6:
-                    prefix = (
-                        int(addr.netmask.split("/")[-1])
-                        if addr.netmask and "/" in addr.netmask
-                        else 64
-                    )
+                    prefix = int(addr.netmask.split("/")[-1]) if addr.netmask and "/" in addr.netmask else 64
                     ip_networks.append({"addr": addr.address, "prefix": prefix})
 
             recv = stats["received"]
@@ -150,8 +140,6 @@ async def network_streamer():
         await asyncio.sleep(1)
 
 
-
 @router.get("/stream")
 async def stream_network():
     return StreamingResponse(network_streamer(), media_type="text/event-stream")
-

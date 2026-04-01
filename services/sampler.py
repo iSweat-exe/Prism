@@ -1,13 +1,11 @@
-import os
 import ctypes
-
+import os
 import platform
 import socket
 import threading
 import time
 
 import psutil
-
 
 from services.logger import logger
 
@@ -33,12 +31,8 @@ class SystemSampler:
         # Start background workers
         self._cpu_thread = threading.Thread(target=self._cpu_worker, daemon=True)
         self._net_thread = threading.Thread(target=self._net_worker, daemon=True)
-        self._latency_thread = threading.Thread(
-            target=self._latency_worker, daemon=True
-        )
-        self._process_thread = threading.Thread(
-            target=self._process_worker, daemon=True
-        )
+        self._latency_thread = threading.Thread(target=self._latency_worker, daemon=True)
+        self._process_thread = threading.Thread(target=self._process_worker, daemon=True)
         self._disk_thread = threading.Thread(target=self._disk_worker, daemon=True)
 
         self._cpu_thread.start()
@@ -77,7 +71,6 @@ class SystemSampler:
             pass
 
         while self._running:
-
             try:
                 usage = psutil.cpu_percent(interval=1, percpu=True)
                 with self._lock:
@@ -179,16 +172,13 @@ class SystemSampler:
                 time.sleep(1)
             time.sleep(1)
 
-
     def _latency_worker(self):
         """Samples network latency every 5 seconds."""
         while self._running:
             try:
                 start = time.time()
                 socket.setdefaulttimeout(2)
-                socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(
-                    ("8.8.8.8", 53)
-                )
+                socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
                 latency = round((time.time() - start) * 1000, 2)
                 with self._lock:
                     self._latency = latency
@@ -202,9 +192,7 @@ class SystemSampler:
         while self._running:
             try:
                 temp_procs = []
-                for proc in psutil.process_iter(
-                    ["pid", "name", "memory_info", "memory_percent"]
-                ):
+                for proc in psutil.process_iter(["pid", "name", "memory_info", "memory_percent"]):
                     try:
                         info = proc.info
                         if info["memory_info"] is None:
@@ -232,9 +220,7 @@ class SystemSampler:
         """Helper to get volume label on Windows."""
         try:
             label = ctypes.create_unicode_buffer(261)
-            ctypes.windll.kernel32.GetVolumeInformationW(
-                mountpoint, label, 261, None, None, None, None, 0
-            )
+            ctypes.windll.kernel32.GetVolumeInformationW(mountpoint, label, 261, None, None, None, None, 0)
             return label.value or mountpoint.rstrip("\\")
         except AttributeError:
             return mountpoint.rstrip("\\")
@@ -259,20 +245,14 @@ class SystemSampler:
 
                     try:
                         # Inside container, host root is at /host
-                        check_path = (
-                            f"/host{part.mountpoint}"
-                            if use_host_prefix
-                            else part.mountpoint
-                        )
-                        
+                        check_path = f"/host{part.mountpoint}" if use_host_prefix else part.mountpoint
+
                         # Validate the path exists before usage to avoid exceptions
                         if not os.path.exists(check_path):
                             continue
 
                         usage = psutil.disk_usage(check_path)
                         disks.append(
-
-
                             {
                                 "name": self._get_volume_label(part.mountpoint),
                                 "mount_point": part.mountpoint,
@@ -286,7 +266,7 @@ class SystemSampler:
                                 "health": "Unknown",
                             }
                         )
-                    except (PermissionError, FileNotFoundError):
+                    except PermissionError, FileNotFoundError:
                         continue
 
                 io = psutil.disk_io_counters(perdisk=False)
@@ -301,7 +281,6 @@ class SystemSampler:
             except Exception as e:
                 print(f"Error in Disk sampler: {e}")
             time.sleep(10)
-
 
     def get_cpu_usage(self):
         with self._lock:

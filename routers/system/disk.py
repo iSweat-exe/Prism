@@ -1,8 +1,10 @@
 import asyncio
 import json
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from services.logger import logger
 from services.sampler import sampler
 
 router = APIRouter(
@@ -21,9 +23,6 @@ router = APIRouter(
         }
     }
 )
-
-
-from services.logger import logger
 
 
 def fetch_disk_data():
@@ -78,8 +77,6 @@ async def disk_streamer():
         await asyncio.sleep(1)
 
 
-
 @router.get("/stream")
 async def stream_disk():
     return StreamingResponse(disk_streamer(), media_type="text/event-stream")
-
