@@ -57,9 +57,7 @@ async def list_images():
         for img in images_data:
             result.append(
                 {
-                    "id": img["Id"].split(":")[-1][:12]
-                    if ":" in img["Id"]
-                    else img["Id"][:12],
+                    "id": img["Id"].split(":")[-1][:12] if ":" in img["Id"] else img["Id"][:12],
                     "full_id": img["Id"],
                     "tags": img.get("RepoTags", []),
                     "size": img.get("Size"),

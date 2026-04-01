@@ -1,9 +1,12 @@
+import asyncio
+import json
 import platform
 
 import psutil
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
+from services.logger import logger
 from services.sampler import sampler
 
 router = APIRouter(
@@ -48,66 +51,86 @@ def get_temperatures() -> list:
         return []
 
 
+def fetch_cpu_data():
+    freq = psutil.cpu_freq(percpu=False)
+    freqs = psutil.cpu_freq(percpu=True) or []
+    usages = sampler.get_cpu_usage()
+    brand = get_cpu_brand()
+    vendor_id = get_vendor_id()
+
+    if not freq:
+        raise RuntimeError("CPU frequency unavailable")
+
+    if not usages:
+        raise RuntimeError("CPU usage unavailable")
+
+    cores = [
+        {
+            "index": i,
+            "name": f"CPU {i + 1}",
+            "usage": usages[i],
+            "frequency": int(freqs[i].current) if i < len(freqs) else int(freq.current),
+            "brand": brand,
+            "vendor_id": vendor_id,
+        }
+        for i in range(len(usages))
+    ]
+
+    return {
+        "global": {
+            "usage": round(sum(usages) / len(usages), 2),
+            "logical_cores": psutil.cpu_count(logical=True),
+            "physical_cores": psutil.cpu_count(logical=False),
+            "avg_frequency": int(freq.current),
+            "min_frequency": int(freq.min),
+            "max_frequency": int(freq.max),
+            "arch": platform.machine(),
+            "brand": brand,
+            "vendor_id": vendor_id,
+        },
+        "cores": cores,
+        "temperatures": get_temperatures(),
+    }
+
+
 @router.get("")
 def get_cpu():
     try:
-        freq = psutil.cpu_freq(percpu=False)
-        freqs = psutil.cpu_freq(percpu=True) or []
-        usages = sampler.get_cpu_usage()
-        brand = get_cpu_brand()
-        vendor_id = get_vendor_id()
-
-        if not freq:
-            raise RuntimeError("Unable to retrieve CPU frequency")
-
-        if not usages:
-            raise RuntimeError("Unable to retrieve CPU usage")
-
-        cores = [
-            {
-                "index": i,
-                "name": f"CPU {i + 1}",
-                "usage": usages[i],
-                "frequency": int(freqs[i].current)
-                if i < len(freqs)
-                else int(freq.current),
-                "brand": brand,
-                "vendor_id": vendor_id,
-            }
-            for i in range(len(usages))
-        ]
-
-        return {
-            "global": {
-                "usage": round(sum(usages) / len(usages), 2),
-                "logical_cores": psutil.cpu_count(logical=True),
-                "physical_cores": psutil.cpu_count(logical=False),
-                "avg_frequency": int(freq.current),
-                "min_frequency": int(freq.min),
-                "max_frequency": int(freq.max),
-                "arch": platform.machine(),
-                "brand": brand,
-                "vendor_id": vendor_id,
-            },
-            "cores": cores,
-            "temperatures": get_temperatures(),
-        }
+        return fetch_cpu_data()
 
     except RuntimeError as e:
+        logger.error(f"Runtime error in get_cpu: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "cpu_data_unavailable",
-                "message": str(e),
+                "message": "Unable to retrieve CPU data",
                 "path": "/system/cpu",
             },
         )
     except Exception as e:
+        logger.error(f"Unexpected error in get_cpu: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "internal_server_error",
-                "message": str(e),
+                "message": "An unexpected error occurred",
                 "path": "/system/cpu",
             },
         )
+
+
+async def cpu_streamer():
+    while True:
+        try:
+            data = fetch_cpu_data()
+            yield f"data: {json.dumps(data)}\n\n"
+        except Exception as e:
+            logger.error(f"Error in cpu_streamer: {e}")
+            yield f"data: {json.dumps({'error': 'stream_interrupted', 'message': 'Unable to stream CPU data'})}\n\n"
+        await asyncio.sleep(1)
+
+
+@router.get("/stream")
+async def stream_cpu():
+    return StreamingResponse(cpu_streamer(), media_type="text/event-stream")

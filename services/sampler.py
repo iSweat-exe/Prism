@@ -1,4 +1,5 @@
 import ctypes
+import os
 import platform
 import socket
 import threading
@@ -6,10 +7,14 @@ import time
 
 import psutil
 
+from services.logger import logger
+
 
 class SystemSampler:
     def __init__(self):
-        self._cpu_usage = []
+        # Initialize with zeros to avoid "usage unavailable" errors on immediate requests
+        self._cpu_usage = [0.0] * psutil.cpu_count()
+
         self._cpu_metadata = {"brand": "Unknown", "vendor_id": "Unknown"}
         self._net_cache = {}
         self._prev_net_stats = {}
@@ -26,12 +31,8 @@ class SystemSampler:
         # Start background workers
         self._cpu_thread = threading.Thread(target=self._cpu_worker, daemon=True)
         self._net_thread = threading.Thread(target=self._net_worker, daemon=True)
-        self._latency_thread = threading.Thread(
-            target=self._latency_worker, daemon=True
-        )
-        self._process_thread = threading.Thread(
-            target=self._process_worker, daemon=True
-        )
+        self._latency_thread = threading.Thread(target=self._latency_worker, daemon=True)
+        self._process_thread = threading.Thread(target=self._process_worker, daemon=True)
         self._disk_thread = threading.Thread(target=self._disk_worker, daemon=True)
 
         self._cpu_thread.start()
@@ -63,6 +64,12 @@ class SystemSampler:
     def _cpu_worker(self):
         """Samples CPU usage every second and metadata once."""
         self._get_cpu_info_once()
+        # Initial non-blocking sample
+        try:
+            self._cpu_usage = psutil.cpu_percent(interval=None, percpu=True)
+        except Exception:
+            pass
+
         while self._running:
             try:
                 usage = psutil.cpu_percent(interval=1, percpu=True)
@@ -72,11 +79,68 @@ class SystemSampler:
                 print(f"Error in CPU sampler: {e}")
                 time.sleep(1)
 
+    def _parse_host_net_dev(self):
+        """
+        Manually parse /host/proc/net/dev to get host-level network statistics.
+        Returns a dictionary compatible with psutil.net_io_counters(pernic=True).
+        """
+        path = "/proc/net/dev"
+        if not os.path.exists(path):
+            return None
+
+        from collections import namedtuple
+
+        snetio = namedtuple(
+            "snetio",
+            [
+                "bytes_sent",
+                "bytes_recv",
+                "packets_sent",
+                "packets_recv",
+                "errin",
+                "errout",
+                "dropin",
+                "dropout",
+            ],
+        )
+
+        stats = {}
+        try:
+            with open(path, "r") as f:
+                lines = f.readlines()
+                for line in lines[2:]:
+                    parts = line.split(":")
+                    if len(parts) < 2:
+                        continue
+                    iface = parts[0].strip()
+                    data = parts[1].split()
+
+                    # Receive: bytes(0), packets(1), errs(2), drop(3)...
+                    # Transmit: bytes(8), packets(9), errs(10), drop(11)...
+                    stats[iface] = snetio(
+                        bytes_recv=int(data[0]),
+                        packets_recv=int(data[1]),
+                        errin=int(data[2]),
+                        dropin=int(data[3]),
+                        bytes_sent=int(data[8]),
+                        packets_sent=int(data[9]),
+                        errout=int(data[10]),
+                        dropout=int(data[11]),
+                    )
+            return stats
+        except Exception as e:
+            logger.error(f"Error parsing host net dev: {e}")
+            return None
+
     def _net_worker(self):
         """Samples network byte rates every second."""
         while self._running:
             try:
-                current = psutil.net_io_counters(pernic=True)
+                # Try to get host-level stats if available, fall back to psutil
+                current = self._parse_host_net_dev()
+                if not current:
+                    current = psutil.net_io_counters(pernic=True)
+
                 if not current:
                     time.sleep(1)
                     continue
@@ -114,9 +178,7 @@ class SystemSampler:
             try:
                 start = time.time()
                 socket.setdefaulttimeout(2)
-                socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(
-                    ("8.8.8.8", 53)
-                )
+                socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
                 latency = round((time.time() - start) * 1000, 2)
                 with self._lock:
                     self._latency = latency
@@ -130,9 +192,7 @@ class SystemSampler:
         while self._running:
             try:
                 temp_procs = []
-                for proc in psutil.process_iter(
-                    ["pid", "name", "memory_info", "memory_percent"]
-                ):
+                for proc in psutil.process_iter(["pid", "name", "memory_info", "memory_percent"]):
                     try:
                         info = proc.info
                         if info["memory_info"] is None:
@@ -160,9 +220,7 @@ class SystemSampler:
         """Helper to get volume label on Windows."""
         try:
             label = ctypes.create_unicode_buffer(261)
-            ctypes.windll.kernel32.GetVolumeInformationW(
-                mountpoint, label, 261, None, None, None, None, 0
-            )
+            ctypes.windll.kernel32.GetVolumeInformationW(mountpoint, label, 261, None, None, None, None, 0)
             return label.value or mountpoint.rstrip("\\")
         except AttributeError:
             return mountpoint.rstrip("\\")
@@ -171,13 +229,29 @@ class SystemSampler:
 
     def _disk_worker(self):
         """Samples disk partitions and usage every 10 seconds."""
+        use_host_prefix = os.path.exists("/host") and platform.system() == "Linux"
         while self._running:
             try:
                 disks = []
                 partitions = psutil.disk_partitions(all=False)
+                logger.info(f"Host Discovery: Found {len(partitions)} potential partitions")
                 for part in partitions:
+                    # Skip noise and container-specific mounts
+                    if any(
+                        x in part.device or x in part.mountpoint
+                        for x in ["overlay", "tmpfs", "shm", "vfs", "docker", "loop"]
+                    ):
+                        continue
+
                     try:
-                        usage = psutil.disk_usage(part.mountpoint)
+                        # Inside container, host root is at /host
+                        check_path = f"/host{part.mountpoint}" if use_host_prefix else part.mountpoint
+
+                        # Validate the path exists before usage to avoid exceptions
+                        if not os.path.exists(check_path):
+                            continue
+
+                        usage = psutil.disk_usage(check_path)
                         disks.append(
                             {
                                 "name": self._get_volume_label(part.mountpoint),

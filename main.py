@@ -1,26 +1,59 @@
+import os
+import time
+import traceback
+
+if os.path.exists("/host/proc"):
+    os.environ["PROCFS_PATH"] = "/host/proc"
+if os.path.exists("/host/sys"):
+    os.environ["HOST_SYS"] = "/host/sys"
+
+
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from routers import docker, system
 from routers.api import api_info
-from routers.docker import containers, images
-from routers.system import cpu, disk, network, os, ram, uptime
 from services.docker_service import docker_service
+from services.logger import logger
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize the docker client
+    logger.info("Starting PrismAPI...")
     docker_service.init()
     yield
-    # Shutdown: Close the docker client
+    logger.info("Stopping PrismAPI...")
     await docker_service.close()
 
 
-app = FastAPI(
-    redirect_slashes=False, title="PrismAPI", version="1.0.0", lifespan=lifespan
-)
+app = FastAPI(redirect_slashes=False, title="PrismAPI", version="1.0.0", lifespan=lifespan)
+
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    duration = time.time() - start_time
+    logger.info(f"{request.method} {request.url.path} - {response.status_code} ({duration:.3f}s)")
+    return response
+
+
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {str(exc)}\n{traceback.format_exc()}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "internal_server_error",
+            "message": "An unexpected error occurred.",
+        },
+    )
+
 
 #! EDIT BEFORE PRODUCTION
 app.add_middleware(
@@ -31,39 +64,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+v1 = APIRouter(prefix="/v1")
 
-@app.get("/system")
+
+@v1.get("/system")
 def get_system():
     return {
         "api": api_info(),
-        "os": os.get_os(),
-        "uptime": uptime.get_uptime(),
-        "cpu": cpu.get_cpu(),
-        "ram": ram.get_ram(),
-        "disk": disk.get_disk(),
-        "network": network.get_network(),
+        "os": system.os.get_os(),
+        "uptime": system.uptime.get_uptime(),
+        "cpu": system.cpu.get_cpu(),
+        "ram": system.ram.get_ram(),
+        "disk": system.disk.get_disk(),
+        "network": system.network.get_network(),
     }
 
 
-async def get_docker():
-    return {
-        "containers": await containers.list_containers(),
-    }
+v1.include_router(system.router, prefix="/system")
+v1.include_router(docker.router, prefix="/docker")
 
+app.include_router(v1)
 
-app.include_router(cpu.router, prefix="/system/cpu", tags=["System Cpu"])
-app.include_router(ram.router, prefix="/system/ram", tags=["System Ram"])
-app.include_router(disk.router, prefix="/system/disk", tags=["System Disk"])
-app.include_router(network.router, prefix="/system/network", tags=["System Network"])
-app.include_router(os.router, prefix="/system/os", tags=["System Os"])
-app.include_router(uptime.router, prefix="/system/uptime", tags=["System Uptime"])
-
-app.include_router(
-    containers.router, prefix="/docker/containers", tags=["Docker Containers"]
-)
-app.include_router(images.router, prefix="/docker/images", tags=["Docker Images"])
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8081)
+    uvicorn.run(app, host="0.0.0.0", port=8081)
