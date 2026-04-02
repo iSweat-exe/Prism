@@ -2,12 +2,6 @@ import os
 import time
 import traceback
 
-if os.path.exists("/host/proc"):
-    os.environ["PROCFS_PATH"] = "/host/proc"
-if os.path.exists("/host/sys"):
-    os.environ["HOST_SYS"] = "/host/sys"
-
-
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, Request
