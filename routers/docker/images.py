@@ -127,7 +127,13 @@ async def pull_image(request: ImagePullRequest):
             async for line in docker.images.pull(request.image, stream=True):
                 yield json.dumps(line) + "\n"
         except aiodocker.exceptions.DockerError as e:
-            yield json.dumps({"error": str(e), "status": e.status}) + "\n"
+            logger.error(f"Docker error pulling image {request.image}: {e}")
+            yield json.dumps(
+                {
+                    "error": "Docker error during image pull",
+                    "status": e.status,
+                }
+            ) + "\n"
         except Exception as e:
             logger.error(f"Unexpected error pulling image {request.image}: {e}")
             yield json.dumps({"error": "Error during image pull orchestration"}) + "\n"
