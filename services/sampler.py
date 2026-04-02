@@ -28,7 +28,6 @@ class SystemSampler:
         self._running = True
         self._lock = threading.Lock()
 
-        # Start background workers
         self._cpu_thread = threading.Thread(target=self._cpu_worker, daemon=True)
         self._net_thread = threading.Thread(target=self._net_worker, daemon=True)
         self._latency_thread = threading.Thread(target=self._latency_worker, daemon=True)
@@ -64,7 +63,7 @@ class SystemSampler:
     def _cpu_worker(self):
         """Samples CPU usage every second and metadata once."""
         self._get_cpu_info_once()
-        # Initial non-blocking sample
+
         try:
             self._cpu_usage = psutil.cpu_percent(interval=None, percpu=True)
         except Exception:
@@ -76,12 +75,12 @@ class SystemSampler:
                 with self._lock:
                     self._cpu_usage = usage
             except Exception as e:
-                print(f"Error in CPU sampler: {e}")
+                logger.error(f"Error in CPU sampler: {e}")
                 time.sleep(1)
 
     def _parse_host_net_dev(self):
         """
-        Manually parse /host/proc/net/dev to get host-level network statistics.
+        Manually parse /proc/net/dev to get host-level network statistics.
         Returns a dictionary compatible with psutil.net_io_counters(pernic=True).
         """
         path = "/proc/net/dev"
@@ -213,7 +212,7 @@ class SystemSampler:
                 with self._lock:
                     self._top_processes = temp_procs[:10]
             except Exception as e:
-                print(f"Error in Process sampler: {e}")
+                logger.error(f"Error in Process sampler: {e}")
             time.sleep(5)
 
     def _get_volume_label(self, mountpoint):
@@ -247,7 +246,7 @@ class SystemSampler:
                         # Inside container, host root is at /host
                         check_path = f"/host{part.mountpoint}" if use_host_prefix else part.mountpoint
 
-                        # Validate the path exists before usage to avoid exceptions
+
                         if not os.path.exists(check_path):
                             continue
 
@@ -279,7 +278,7 @@ class SystemSampler:
                         },
                     }
             except Exception as e:
-                print(f"Error in Disk sampler: {e}")
+                logger.error(f"Error in Disk sampler: {e}")
             time.sleep(10)
 
     def get_cpu_usage(self):
@@ -307,5 +306,5 @@ class SystemSampler:
             return self._disk_cache
 
 
-# Global instance
+
 sampler = SystemSampler()
