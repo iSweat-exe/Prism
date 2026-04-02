@@ -1,5 +1,4 @@
 import ctypes
-import os
 import platform
 import socket
 import threading
@@ -12,18 +11,14 @@ from services.logger import logger
 
 class SystemSampler:
     def __init__(self):
-        # Initialize with zeros to avoid "usage unavailable" errors on immediate requests
         self._cpu_usage = [0.0] * psutil.cpu_count()
-
         self._cpu_metadata = {"brand": "Unknown", "vendor_id": "Unknown"}
         self._net_cache = {}
         self._prev_net_stats = {}
         self._latency = None
         self._sample_error = None
-
         self._top_processes = []
         self._disk_cache = {"disks": [], "io": {"read": 0, "written": 0}}
-        self._prev_disk_io = None
 
         self._running = True
         self._lock = threading.Lock()
@@ -40,8 +35,8 @@ class SystemSampler:
         self._process_thread.start()
         self._disk_thread.start()
 
+
     def _get_cpu_info_once(self):
-        """Fetches CPU brand and vendor ID once."""
         if self._cpu_metadata["brand"] != "Unknown":
             return
 
@@ -49,19 +44,18 @@ class SystemSampler:
         vendor_id = "Unknown"
         try:
             import cpuinfo
-
             info = cpuinfo.get_cpu_info()
             brand = info.get("brand_raw", platform.processor())
             vendor_id = info.get("vendor_id_raw", "Unknown")
-        except ImportError, Exception:
+        except (ImportError, Exception):
             brand = platform.processor() or "Unknown"
 
         with self._lock:
             self._cpu_metadata["brand"] = brand
             self._cpu_metadata["vendor_id"] = vendor_id
 
+
     def _cpu_worker(self):
-        """Samples CPU usage every second and metadata once."""
         self._get_cpu_info_once()
 
         try:
@@ -78,67 +72,11 @@ class SystemSampler:
                 logger.error(f"Error in CPU sampler: {e}")
                 time.sleep(1)
 
-    def _parse_host_net_dev(self):
-        """
-        Manually parse /proc/net/dev to get host-level network statistics.
-        Returns a dictionary compatible with psutil.net_io_counters(pernic=True).
-        """
-        path = "/proc/net/dev"
-        if not os.path.exists(path):
-            return None
-
-        from collections import namedtuple
-
-        snetio = namedtuple(
-            "snetio",
-            [
-                "bytes_sent",
-                "bytes_recv",
-                "packets_sent",
-                "packets_recv",
-                "errin",
-                "errout",
-                "dropin",
-                "dropout",
-            ],
-        )
-
-        stats = {}
-        try:
-            with open(path, "r") as f:
-                lines = f.readlines()
-                for line in lines[2:]:
-                    parts = line.split(":")
-                    if len(parts) < 2:
-                        continue
-                    iface = parts[0].strip()
-                    data = parts[1].split()
-
-                    # Receive: bytes(0), packets(1), errs(2), drop(3)...
-                    # Transmit: bytes(8), packets(9), errs(10), drop(11)...
-                    stats[iface] = snetio(
-                        bytes_recv=int(data[0]),
-                        packets_recv=int(data[1]),
-                        errin=int(data[2]),
-                        dropin=int(data[3]),
-                        bytes_sent=int(data[8]),
-                        packets_sent=int(data[9]),
-                        errout=int(data[10]),
-                        dropout=int(data[11]),
-                    )
-            return stats
-        except Exception as e:
-            logger.error(f"Error parsing host net dev: {e}")
-            return None
 
     def _net_worker(self):
-        """Samples network byte rates every second."""
         while self._running:
             try:
-                # Try to get host-level stats if available, fall back to psutil
-                current = self._parse_host_net_dev()
-                if not current:
-                    current = psutil.net_io_counters(pernic=True)
+                current = psutil.net_io_counters(pernic=True)
 
                 if not current:
                     time.sleep(1)
@@ -171,8 +109,8 @@ class SystemSampler:
                 time.sleep(1)
             time.sleep(1)
 
+
     def _latency_worker(self):
-        """Samples network latency every 5 seconds."""
         while self._running:
             try:
                 start = time.time()
@@ -186,8 +124,8 @@ class SystemSampler:
                     self._latency = None
             time.sleep(5)
 
+
     def _process_worker(self):
-        """Samples top 10 processes every 5 seconds."""
         while self._running:
             try:
                 temp_procs = []
@@ -205,7 +143,7 @@ class SystemSampler:
                                 "memory_percent": info["memory_percent"] or 0.0,
                             }
                         )
-                    except psutil.NoSuchProcess, psutil.AccessDenied:
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
                         continue
 
                 temp_procs.sort(key=lambda x: x["memory"], reverse=True)
@@ -215,8 +153,8 @@ class SystemSampler:
                 logger.error(f"Error in Process sampler: {e}")
             time.sleep(5)
 
+
     def _get_volume_label(self, mountpoint):
-        """Helper to get volume label on Windows."""
         try:
             label = ctypes.create_unicode_buffer(261)
             ctypes.windll.kernel32.GetVolumeInformationW(mountpoint, label, 261, None, None, None, None, 0)
@@ -226,16 +164,14 @@ class SystemSampler:
         except Exception:
             return mountpoint.rstrip("\\")
 
+
     def _disk_worker(self):
-        """Samples disk partitions and usage every 10 seconds."""
-        use_host_prefix = os.path.exists("/host") and platform.system() == "Linux"
         while self._running:
             try:
                 disks = []
                 partitions = psutil.disk_partitions(all=False)
                 logger.info(f"Host Discovery: Found {len(partitions)} potential partitions")
                 for part in partitions:
-                    # Skip noise and container-specific mounts
                     if any(
                         x in part.device or x in part.mountpoint
                         for x in ["overlay", "tmpfs", "shm", "vfs", "docker", "loop"]
@@ -243,29 +179,22 @@ class SystemSampler:
                         continue
 
                     try:
-                        # Inside container, host root is at /host
-                        check_path = f"/host{part.mountpoint}" if use_host_prefix else part.mountpoint
-
-
-                        if not os.path.exists(check_path):
-                            continue
-
-                        usage = psutil.disk_usage(check_path)
+                        usage = psutil.disk_usage(part.mountpoint)
                         disks.append(
                             {
                                 "name": self._get_volume_label(part.mountpoint),
                                 "mount_point": part.mountpoint,
                                 "file_system": part.fstype,
-                                "kind": "Unknown",
+                                "kind": "Unknown", # Fix later -> (SSD or HDD)
                                 "is_removable": "removable" in part.opts,
                                 "total_space": usage.total,
                                 "available_space": usage.free,
                                 "used_space": usage.used,
                                 "usage_percent": usage.percent,
-                                "health": "Unknown",
+                                "health": "Unknown", # Fix later
                             }
                         )
-                    except PermissionError, FileNotFoundError:
+                    except (PermissionError, FileNotFoundError):
                         continue
 
                 io = psutil.disk_io_counters(perdisk=False)
@@ -285,26 +214,30 @@ class SystemSampler:
         with self._lock:
             return self._cpu_usage
 
+
     def get_cpu_metadata(self):
         with self._lock:
             return self._cpu_metadata
+
 
     def get_net_cache(self):
         with self._lock:
             return self._net_cache, self._sample_error
 
+
     def get_latency(self):
         with self._lock:
             return self._latency
+
 
     def get_top_processes(self):
         with self._lock:
             return self._top_processes
 
+
     def get_disks(self):
         with self._lock:
             return self._disk_cache
-
 
 
 sampler = SystemSampler()
