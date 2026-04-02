@@ -1,7 +1,5 @@
-import os
 import time
 import traceback
-
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, Request

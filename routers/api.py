@@ -4,7 +4,6 @@ from fastapi import APIRouter
 
 from services.docker_service import docker_service
 from services.pm2_service import pm2_service
-from services.sampler import sampler
 from services.uptime import get_app_uptime, get_app_uptime_formatted
 
 router = APIRouter()
@@ -30,7 +29,6 @@ async def api_info():
             pm2_info = {"status": "online", "processes": len(processes)}
     except Exception:
         pass
-
 
     return {
         "app": {

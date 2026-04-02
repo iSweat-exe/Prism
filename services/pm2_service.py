@@ -81,7 +81,8 @@ class PM2Service:
 
         except Exception as e:
             logger.error(f"Error streaming logs for {id_or_name}: {str(e)}")
-            yield f"data: {json.dumps({'error': 'stream_interrupted', 'message': 'The log stream was interrupted'})}\n\n"
+            error_msg = {"error": "stream_interrupted", "message": "The log stream was interrupted"}
+            yield f"data: {json.dumps(error_msg)}\n\n"
         finally:
             if process.returncode is None:
                 process.terminate()
