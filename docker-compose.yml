@@ -8,8 +8,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - /proc:/proc:ro
       - /sys:/sys:ro
+      - ~/.pm2:/root/.pm2:rw
       - /:/host:ro
     environment:
+      - PM2_HOME=/root/.pm2
       - PORT=8081
       - APP_NAME=prism-api
       - GATEWAY_NAME=nginx-proxy
