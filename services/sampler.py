@@ -35,7 +35,6 @@ class SystemSampler:
         self._process_thread.start()
         self._disk_thread.start()
 
-
     def _get_cpu_info_once(self):
         if self._cpu_metadata["brand"] != "Unknown":
             return
@@ -44,16 +43,16 @@ class SystemSampler:
         vendor_id = "Unknown"
         try:
             import cpuinfo
+
             info = cpuinfo.get_cpu_info()
             brand = info.get("brand_raw", platform.processor())
             vendor_id = info.get("vendor_id_raw", "Unknown")
-        except (ImportError, Exception):
+        except ImportError, Exception:
             brand = platform.processor() or "Unknown"
 
         with self._lock:
             self._cpu_metadata["brand"] = brand
             self._cpu_metadata["vendor_id"] = vendor_id
-
 
     def _cpu_worker(self):
         self._get_cpu_info_once()
@@ -71,7 +70,6 @@ class SystemSampler:
             except Exception as e:
                 logger.error(f"Error in CPU sampler: {e}")
                 time.sleep(1)
-
 
     def _net_worker(self):
         while self._running:
@@ -109,7 +107,6 @@ class SystemSampler:
                 time.sleep(1)
             time.sleep(1)
 
-
     def _latency_worker(self):
         while self._running:
             try:
@@ -123,7 +120,6 @@ class SystemSampler:
                 with self._lock:
                     self._latency = None
             time.sleep(5)
-
 
     def _process_worker(self):
         while self._running:
@@ -143,7 +139,7 @@ class SystemSampler:
                                 "memory_percent": info["memory_percent"] or 0.0,
                             }
                         )
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    except psutil.NoSuchProcess, psutil.AccessDenied:
                         continue
 
                 temp_procs.sort(key=lambda x: x["memory"], reverse=True)
@@ -152,7 +148,6 @@ class SystemSampler:
             except Exception as e:
                 logger.error(f"Error in Process sampler: {e}")
             time.sleep(5)
-
 
     def _get_volume_label(self, mountpoint):
         try:
@@ -163,7 +158,6 @@ class SystemSampler:
             return mountpoint.rstrip("\\")
         except Exception:
             return mountpoint.rstrip("\\")
-
 
     def _disk_worker(self):
         while self._running:
@@ -185,16 +179,16 @@ class SystemSampler:
                                 "name": self._get_volume_label(part.mountpoint),
                                 "mount_point": part.mountpoint,
                                 "file_system": part.fstype,
-                                "kind": "Unknown", # Fix later -> (SSD or HDD)
+                                "kind": "Unknown",  # Fix later -> (SSD or HDD)
                                 "is_removable": "removable" in part.opts,
                                 "total_space": usage.total,
                                 "available_space": usage.free,
                                 "used_space": usage.used,
                                 "usage_percent": usage.percent,
-                                "health": "Unknown", # Fix later
+                                "health": "Unknown",  # Fix later
                             }
                         )
-                    except (PermissionError, FileNotFoundError):
+                    except PermissionError, FileNotFoundError:
                         continue
 
                 io = psutil.disk_io_counters(perdisk=False)
@@ -214,26 +208,21 @@ class SystemSampler:
         with self._lock:
             return self._cpu_usage
 
-
     def get_cpu_metadata(self):
         with self._lock:
             return self._cpu_metadata
-
 
     def get_net_cache(self):
         with self._lock:
             return self._net_cache, self._sample_error
 
-
     def get_latency(self):
         with self._lock:
             return self._latency
 
-
     def get_top_processes(self):
         with self._lock:
             return self._top_processes
-
 
     def get_disks(self):
         with self._lock:

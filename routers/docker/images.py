@@ -4,10 +4,9 @@ import aiodocker
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from services.logger import logger
-
 from models.schema import ImagePullRequest
 from services.docker_service import docker_service
+from services.logger import logger
 
 router = APIRouter(
     responses={
@@ -78,7 +77,7 @@ async def list_images():
                     "path": "/docker/images",
                 },
             )
-            
+
         logger.error(f"Error listing images: {e}")
         return JSONResponse(
             status_code=500,
@@ -128,12 +127,15 @@ async def pull_image(request: ImagePullRequest):
                 yield json.dumps(line) + "\n"
         except aiodocker.exceptions.DockerError as e:
             logger.error(f"Docker error pulling image {request.image}: {e}")
-            yield json.dumps(
-                {
-                    "error": "Docker error during image pull",
-                    "status": e.status,
-                }
-            ) + "\n"
+            yield (
+                json.dumps(
+                    {
+                        "error": "Docker error during image pull",
+                        "status": e.status,
+                    }
+                )
+                + "\n"
+            )
         except Exception as e:
             logger.error(f"Unexpected error pulling image {request.image}: {e}")
             yield json.dumps({"error": "Error during image pull orchestration"}) + "\n"

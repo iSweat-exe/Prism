@@ -103,7 +103,7 @@ async def get_containers():
                     "path": "/docker/containers",
                 },
             )
-        
+
         logger.error(f"Error listing containers: {e}")
         return JSONResponse(
             status_code=500,
@@ -160,7 +160,7 @@ async def create_container(config: ContainerCreate):
                     await docker.images.pull(config.image)
                     # Retry creation after successful pull
                     container = await docker.containers.create(config=docker_config, name=config.name)
-                except Exception as pull_err:
+                except Exception:
                     raise HTTPException(
                         status_code=500,
                         detail=f"Image {config.image} not found locally and automatic pull failed.",

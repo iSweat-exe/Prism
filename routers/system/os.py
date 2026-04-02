@@ -4,6 +4,7 @@ import socket
 import psutil
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+
 from services.logger import logger
 
 router = APIRouter(
