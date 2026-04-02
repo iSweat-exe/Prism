@@ -1,4 +1,6 @@
 name: CI Pipeline
+permissions:
+  contents: read
 
 on:
   push:
