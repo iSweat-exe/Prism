@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import psutil
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+from services.logger import logger
 
 router = APIRouter(
     responses={
@@ -61,20 +62,22 @@ def get_uptime():
         }
 
     except RuntimeError as e:
+        logger.error(f"Runtime error in get_uptime: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "uptime_data_unavailable",
-                "message": str(e),
+                "message": "Unable to retrieve system uptime data",
                 "path": "/system/uptime",
             },
         )
     except Exception as e:
+        logger.error(f"Unexpected error in get_uptime: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "internal_server_error",
-                "message": str(e),
+                "message": "An unexpected error occurred while retrieving uptime",
                 "path": "/system/uptime",
             },
         )

@@ -4,6 +4,7 @@ import socket
 import psutil
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+from services.logger import logger
 
 router = APIRouter(
     responses={
@@ -64,11 +65,12 @@ def get_os():
         }
 
     except Exception as e:
+        logger.error(f"Unexpected error in get_os: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "internal_server_error",
-                "message": str(e),
+                "message": "Unable to retrieve system OS information",
                 "path": "/system/os",
             },
         )

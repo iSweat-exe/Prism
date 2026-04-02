@@ -93,6 +93,17 @@ async def get_containers():
     try:
         return await list_containers()
     except Exception as e:
+        error_msg = str(e).lower()
+        if "cannot connect" in error_msg or "npipe" in error_msg or "docker.sock" in error_msg:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "docker_not_running",
+                    "message": "Docker Engine is not started or unreachable.",
+                    "path": "/docker/containers",
+                },
+            )
+        
         logger.error(f"Error listing containers: {e}")
         return JSONResponse(
             status_code=500,
@@ -152,7 +163,7 @@ async def create_container(config: ContainerCreate):
                 except Exception as pull_err:
                     raise HTTPException(
                         status_code=500,
-                        detail=(f"Image {config.image} not found locally and auto-pull failed: {str(pull_err)}"),
+                        detail=f"Image {config.image} not found locally and automatic pull failed.",
                     )
             else:
                 logger.error(f"Docker error in create_container: {e}")

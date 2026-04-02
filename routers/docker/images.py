@@ -4,6 +4,8 @@ import aiodocker
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from services.logger import logger
+
 from models.schema import ImagePullRequest
 from services.docker_service import docker_service
 
@@ -39,7 +41,7 @@ async def _inspect_image(image_id: str):
     except aiodocker.exceptions.DockerError as e:
         if e.status == 404:
             raise HTTPException(status_code=404, detail=f"Image {image_id} not found")
-        raise HTTPException(status_code=e.status, detail=str(e))
+        raise HTTPException(status_code=e.status, detail="Docker image inspection error")
 
 
 @router.get("")
@@ -66,11 +68,23 @@ async def list_images():
             )
         return result
     except Exception as e:
+        error_msg = str(e).lower()
+        if "cannot connect" in error_msg or "npipe" in error_msg or "docker.sock" in error_msg:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "docker_not_running",
+                    "message": "Docker Engine is not started or unreachable.",
+                    "path": "/docker/images",
+                },
+            )
+            
+        logger.error(f"Error listing images: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "docker_list_images_error",
-                "message": str(e),
+                "message": "Unable to list local Docker images",
                 "path": "/docker/images",
             },
         )
@@ -87,11 +101,12 @@ async def get_image_details(image_id: str):
     except HTTPException as e:
         raise e
     except Exception as e:
+        logger.error(f"Error inspecting image {image_id}: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "docker_inspect_image_error",
-                "message": str(e),
+                "message": "Unable to inspect Docker image metadata",
                 "path": f"/docker/images/{image_id}",
             },
         )
@@ -114,7 +129,8 @@ async def pull_image(request: ImagePullRequest):
         except aiodocker.exceptions.DockerError as e:
             yield json.dumps({"error": str(e), "status": e.status}) + "\n"
         except Exception as e:
-            yield json.dumps({"error": str(e)}) + "\n"
+            logger.error(f"Unexpected error pulling image {request.image}: {e}")
+            yield json.dumps({"error": "Error during image pull orchestration"}) + "\n"
 
     return StreamingResponse(pull_generator(), media_type="application/x-ndjson")
 
@@ -133,13 +149,14 @@ async def delete_image(image_id: str, force: bool = False, noprune: bool = False
         await docker.images.delete(image_id, force=force, noprune=noprune)
         return {"message": f"Image {image_id} deleted successfully"}
     except aiodocker.exceptions.DockerError as e:
-        raise HTTPException(status_code=e.status, detail=str(e))
+        raise HTTPException(status_code=e.status, detail="Docker image deletion error")
     except Exception as e:
+        logger.error(f"Error deleting image {image_id}: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "docker_delete_image_error",
-                "message": str(e),
+                "message": "An error occurred while deleting the Docker image",
                 "path": f"/docker/images/{image_id}",
             },
         )
@@ -160,13 +177,14 @@ async def prune_images(all_unused: bool = False):
         result = await docker.images.prune(filters=filters)
         return result
     except aiodocker.exceptions.DockerError as e:
-        raise HTTPException(status_code=e.status, detail=str(e))
+        raise HTTPException(status_code=e.status, detail="Docker image prune error")
     except Exception as e:
+        logger.error(f"Error pruning images: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "error": "docker_prune_images_error",
-                "message": str(e),
+                "message": "Unable to prune unused Docker images",
                 "path": "/docker/images/prune",
             },
         )

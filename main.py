@@ -14,7 +14,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from routers import docker, system
+from routers import docker, pm2, system
 from routers.api import api_info
 from services.docker_service import docker_service
 from services.logger import logger
@@ -68,9 +68,9 @@ v1 = APIRouter(prefix="/v1")
 
 
 @v1.get("/system")
-def get_system():
+async def get_system():
     return {
-        "api": api_info(),
+        "api": await api_info(),
         "os": system.os.get_os(),
         "uptime": system.uptime.get_uptime(),
         "cpu": system.cpu.get_cpu(),
@@ -82,6 +82,7 @@ def get_system():
 
 v1.include_router(system.router, prefix="/system")
 v1.include_router(docker.router, prefix="/docker")
+v1.include_router(pm2.router, prefix="/pm2")
 
 app.include_router(v1)
 
@@ -89,4 +90,4 @@ app.include_router(v1)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8081)
+    uvicorn.run(app, host="127.0.0.1", port=8081)
