@@ -17,10 +17,14 @@ class PM2Service:
             stdout, stderr = await process.communicate()
 
             if process.returncode != 0:
-                logger.error(f"PM2 command failed: {' '.join(args)} - Error: {stderr.decode().strip()}")
+                error_msg = stderr.decode().strip()
+                logger.error(f"PM2 command failed: {' '.join(args)} - Error: {error_msg}")
                 return None
 
             return stdout.decode().strip()
+        except FileNotFoundError:
+            logger.error("PM2 executable not found. Ensure PM2 is installed in the container.")
+            return None
         except Exception as e:
             logger.error(f"Failed to execute PM2 command: {str(e)}")
             return None
