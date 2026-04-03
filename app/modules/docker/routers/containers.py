@@ -2,9 +2,9 @@ import aiodocker
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from models.schema import ContainerCreate
-from services.docker_service import docker_service
-from services.exceptions import DockerServiceError, ResourceNotFoundError
+from app.core.exceptions import DockerServiceError, ResourceNotFoundError
+from app.core.schemas import ContainerCreate
+from app.modules.docker.service import docker_service
 
 router = APIRouter(
     responses={

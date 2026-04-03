@@ -6,7 +6,7 @@ module.exports = {
   apps: [
     {
       name: "prism-api",
-      script: "main.py",
+      script: "app/main.py",
       interpreter: `${os.homedir()}/prism/.venv/bin/python`,
 
       watch: false,

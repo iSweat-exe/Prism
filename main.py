@@ -1,27 +1,9 @@
-from fastapi import APIRouter, FastAPI
+import os
+import sys
 
-from config import settings
-from middleware import setup_middleware
-from routers import docker, pm2, system
-from services.lifespan import lifespan
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-app = FastAPI(
-    redirect_slashes=False,
-    title=settings.APP_NAME,
-    version=settings.VERSION,
-    lifespan=lifespan,
-)
-
-setup_middleware(app)
-
-api_router = APIRouter(prefix="/v1")
-
-api_router.include_router(system.router, prefix="/system")
-api_router.include_router(docker.router, prefix="/docker")
-api_router.include_router(pm2.router, prefix="/pm2")
-
-app.include_router(api_router)
-
+from app.main import app
 
 if __name__ == "__main__":
     import uvicorn

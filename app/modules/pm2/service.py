@@ -1,9 +1,8 @@
 import asyncio
 import json
-import logging
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger("PrismAPI")
+from app.core.logger import logger
 
 
 class PM2Service:

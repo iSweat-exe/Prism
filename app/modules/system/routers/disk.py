@@ -4,8 +4,8 @@ import json
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from services.logger import logger
-from services.sampler import sampler
+from app.core.logger import logger
+from app.modules.system.sampler import sampler
 
 router = APIRouter(
     responses={

@@ -5,8 +5,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from services.exceptions import PrismError
-from services.logger import logger
+from app.core.exceptions import PrismError
+from app.core.logger import logger
 
 
 def setup_middleware(app: FastAPI):

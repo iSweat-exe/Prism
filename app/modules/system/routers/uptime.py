@@ -5,7 +5,7 @@ import psutil
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from services.logger import logger
+from app.core.logger import logger
 
 router = APIRouter(
     responses={

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import psutil
 
-from services.logger import logger
+from app.core.logger import logger
 
 
 class SystemSampler:

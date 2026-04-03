@@ -2,8 +2,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from .docker_service import docker_service
-from .logger import logger
+from app.core.logger import logger
+from app.modules.docker.service import docker_service
 
 
 @asynccontextmanager

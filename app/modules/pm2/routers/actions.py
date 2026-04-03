@@ -1,7 +1,7 @@
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
 
-from services.pm2_service import pm2_service
+from app.core.exceptions import PM2ServiceError
+from app.modules.pm2.service import pm2_service
 
 router = APIRouter()
 
@@ -10,14 +10,7 @@ async def execute_pm2_action(id_or_name: str, action: str):
     """Helper to execute a PM2 action and return a standardized response."""
     success = await pm2_service.process_action(id_or_name, action)
     if not success:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "pm2_action_failed",
-                "message": f"Failed to {action} process '{id_or_name}'",
-                "path": f"/v1/pm2/{id_or_name}/{action}",
-            },
-        )
+        raise PM2ServiceError(f"Failed to {action} process '{id_or_name}'", status_code=500)
     return {"status": "success", "action": action, "target": id_or_name}
 
 

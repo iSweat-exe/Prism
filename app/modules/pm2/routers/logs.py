@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
-from services.logger import logger
-from services.pm2_service import pm2_service
+from app.core.exceptions import PM2ServiceError
+from app.modules.pm2.service import pm2_service
 
 router = APIRouter()
 
@@ -11,18 +11,9 @@ router = APIRouter()
 async def get_process_logs(id_or_name: str, lines: int = Query(100, ge=1, le=1000)):
     """Fetch the last N lines of logs for a process."""
     try:
-        logs = await pm2_service.get_logs(id_or_name, lines)
-        return logs
+        return await pm2_service.get_logs(id_or_name, lines)
     except Exception as e:
-        logger.error(f"Error fetching logs for {id_or_name}: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "logs_fetch_failed",
-                "message": f"Failed to fetch logs for process '{id_or_name}'",
-                "path": f"/v1/pm2/{id_or_name}/logs",
-            },
-        )
+        raise PM2ServiceError(f"Failed to fetch logs for process '{id_or_name}': {str(e)}")
 
 
 @router.get("/{id_or_name}/logs/stream")
