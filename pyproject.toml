@@ -2,7 +2,7 @@
 name = "prism-api"
 version = "1.0.0"
 description = "API de monitoring système"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.135.2",
     "uvicorn[standard]>=0.42.0",
