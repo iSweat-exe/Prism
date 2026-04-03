@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from services.exceptions import PrismError
 from services.logger import logger
 
 
@@ -22,7 +23,23 @@ def setup_middleware(app: FastAPI):
         logger.info(f"{request.method} {request.url.path} - {response.status_code} ({duration:.3f}s)")
         return response
 
-    # Global exception handler
+    # PrismAPI custom exception handler
+    @app.exception_handler(PrismError)
+    async def prism_exception_handler(request: Request, exc: PrismError):
+        if exc.status_code >= 500:
+            logger.error(f"Service error on {request.method} {request.url.path}: {exc.message}")
+
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": exc.error_code,
+                "message": exc.message,
+                "details": exc.details,
+                "path": request.url.path,
+            },
+        )
+
+    # Global unhandled exception handler
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         logger.error(
@@ -33,6 +50,7 @@ def setup_middleware(app: FastAPI):
             content={
                 "error": "internal_server_error",
                 "message": "An unexpected error occurred.",
+                "path": request.url.path,
             },
         )
 

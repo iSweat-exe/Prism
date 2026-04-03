@@ -3,6 +3,7 @@ import platform
 import socket
 import threading
 import time
+from typing import Any, Dict, List, Optional, Tuple
 
 import psutil
 
@@ -10,19 +11,25 @@ from services.logger import logger
 
 
 class SystemSampler:
+    """
+    Background service that periodically samples system metrics (CPU, Memory, Disk, Network).
+    Uses multiple threads to avoid blocking the main API thread.
+    """
+
     def __init__(self):
-        self._cpu_usage = [0.0] * psutil.cpu_count()
-        self._cpu_metadata = {"brand": "Unknown", "vendor_id": "Unknown"}
-        self._net_cache = {}
-        self._prev_net_stats = {}
-        self._latency = None
-        self._sample_error = None
-        self._top_processes = []
-        self._disk_cache = {"disks": [], "io": {"read": 0, "written": 0}}
+        self._cpu_usage: List[float] = [0.0] * psutil.cpu_count()
+        self._cpu_metadata: Dict[str, str] = {"brand": "Unknown", "vendor_id": "Unknown"}
+        self._net_cache: Dict[str, Dict[str, int]] = {}
+        self._prev_net_stats: Dict[str, Any] = {}
+        self._latency: Optional[float] = None
+        self._sample_error: Optional[str] = None
+        self._top_processes: List[Dict[str, Any]] = []
+        self._disk_cache: Dict[str, Any] = {"disks": [], "io": {"read": 0, "written": 0}}
 
         self._running = True
         self._lock = threading.Lock()
 
+        # Initialize and start sampling threads
         self._cpu_thread = threading.Thread(target=self._cpu_worker, daemon=True)
         self._net_thread = threading.Thread(target=self._net_worker, daemon=True)
         self._latency_thread = threading.Thread(target=self._latency_worker, daemon=True)
@@ -35,7 +42,8 @@ class SystemSampler:
         self._process_thread.start()
         self._disk_thread.start()
 
-    def _get_cpu_info_once(self):
+    def _get_cpu_info_once(self) -> None:
+        """Retrieves CPU brand and vendor information once at startup."""
         if self._cpu_metadata["brand"] != "Unknown":
             return
 
@@ -54,7 +62,8 @@ class SystemSampler:
             self._cpu_metadata["brand"] = brand
             self._cpu_metadata["vendor_id"] = vendor_id
 
-    def _cpu_worker(self):
+    def _cpu_worker(self) -> None:
+        """Thread worker to sample CPU usage per core."""
         self._get_cpu_info_once()
 
         try:
@@ -71,7 +80,8 @@ class SystemSampler:
                 logger.error(f"Error in CPU sampler: {e}")
                 time.sleep(1)
 
-    def _net_worker(self):
+    def _net_worker(self) -> None:
+        """Thread worker to sample network I/O stats per interface."""
         while self._running:
             try:
                 current = psutil.net_io_counters(pernic=True)
@@ -107,11 +117,13 @@ class SystemSampler:
                 time.sleep(1)
             time.sleep(1)
 
-    def _latency_worker(self):
+    def _latency_worker(self) -> None:
+        """Thread worker to sample network latency to a public DNS."""
         while self._running:
             try:
                 start = time.time()
                 socket.setdefaulttimeout(2)
+                # Google DNS as a reliable ping target
                 socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
                 latency = round((time.time() - start) * 1000, 2)
                 with self._lock:
@@ -121,7 +133,8 @@ class SystemSampler:
                     self._latency = None
             time.sleep(5)
 
-    def _process_worker(self):
+    def _process_worker(self) -> None:
+        """Thread worker to sample top 10 processes by memory usage."""
         while self._running:
             try:
                 temp_procs = []
@@ -149,25 +162,28 @@ class SystemSampler:
                 logger.error(f"Error in Process sampler: {e}")
             time.sleep(5)
 
-    def _get_volume_label(self, mountpoint):
+    def _get_volume_label(self, mountpoint: str) -> str:
+        """Retrieves the volume label for a mountpoint (Windows-only support)."""
+        if platform.system() != "Windows":
+            return mountpoint.rstrip("/\\") or "/"
+
         try:
             label = ctypes.create_unicode_buffer(261)
             ctypes.windll.kernel32.GetVolumeInformationW(mountpoint, label, 261, None, None, None, None, 0)
             return label.value or mountpoint.rstrip("\\")
-        except AttributeError:
-            return mountpoint.rstrip("\\")
-        except Exception:
+        except AttributeError, Exception:
             return mountpoint.rstrip("\\")
 
-    def _disk_worker(self):
+    def _disk_worker(self) -> None:
+        """Thread worker to sample disk status and I/O."""
         while self._running:
             try:
                 disks = []
                 partitions = psutil.disk_partitions(all=False)
-                logger.info(f"Host Discovery: Found {len(partitions)} potential partitions")
                 for part in partitions:
+                    # Skip virtual or temporary file systems
                     if any(
-                        x in part.device or x in part.mountpoint
+                        x in part.device.lower() or x in part.mountpoint.lower()
                         for x in ["overlay", "tmpfs", "shm", "vfs", "docker", "loop"]
                     ):
                         continue
@@ -179,13 +195,12 @@ class SystemSampler:
                                 "name": self._get_volume_label(part.mountpoint),
                                 "mount_point": part.mountpoint,
                                 "file_system": part.fstype,
-                                "kind": "Unknown",  # Fix later -> (SSD or HDD)
+                                "kind": "Unknown",
                                 "is_removable": "removable" in part.opts,
                                 "total_space": usage.total,
                                 "available_space": usage.free,
                                 "used_space": usage.used,
                                 "usage_percent": usage.percent,
-                                "health": "Unknown",  # Fix later
                             }
                         )
                     except PermissionError, FileNotFoundError:
@@ -204,27 +219,33 @@ class SystemSampler:
                 logger.error(f"Error in Disk sampler: {e}")
             time.sleep(10)
 
-    def get_cpu_usage(self):
+    def get_cpu_usage(self) -> List[float]:
+        """Returns the last sampled CPU usage per core."""
         with self._lock:
             return self._cpu_usage
 
-    def get_cpu_metadata(self):
+    def get_cpu_metadata(self) -> Dict[str, str]:
+        """Returns CPU metadata (brand, vendor)."""
         with self._lock:
             return self._cpu_metadata
 
-    def get_net_cache(self):
+    def get_net_cache(self) -> Tuple[Dict[str, Dict[str, int]], Optional[str]]:
+        """Returns sampled network throughput metrics and any sampling errors."""
         with self._lock:
             return self._net_cache, self._sample_error
 
-    def get_latency(self):
+    def get_latency(self) -> Optional[float]:
+        """Returns the last measured network latency."""
         with self._lock:
             return self._latency
 
-    def get_top_processes(self):
+    def get_top_processes(self) -> List[Dict[str, Any]]:
+        """Returns the top 10 processes by memory consumption."""
         with self._lock:
             return self._top_processes
 
-    def get_disks(self):
+    def get_disks(self) -> Dict[str, Any]:
+        """Returns sampled disk usage and I/O statistics."""
         with self._lock:
             return self._disk_cache
 

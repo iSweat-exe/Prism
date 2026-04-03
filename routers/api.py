@@ -2,6 +2,7 @@ import os
 
 from fastapi import APIRouter
 
+from config import settings
 from services.docker_service import docker_service
 from services.pm2_service import pm2_service
 from services.uptime import get_app_uptime, get_app_uptime_formatted
@@ -32,8 +33,8 @@ async def api_info():
 
     return {
         "app": {
-            "name": "PrismAPI",
-            "version": "1.0.0",
+            "name": settings.APP_NAME,
+            "version": settings.VERSION,
             "status": "running",
             "uptime_seconds": get_app_uptime(),
             "uptime": get_app_uptime_formatted(),
@@ -44,6 +45,6 @@ async def api_info():
         },
         "environment": {
             "is_container": os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv"),
-            "procfs": os.getenv("PROCFS_PATH", "/proc"),
+            "procfs": settings.PROCFS_PATH,
         },
     }

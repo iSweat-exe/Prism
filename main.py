@@ -1,13 +1,14 @@
 from fastapi import APIRouter, FastAPI
 
+from config import settings
 from middleware import setup_middleware
 from routers import docker, pm2, system
 from services.lifespan import lifespan
 
 app = FastAPI(
     redirect_slashes=False,
-    title="PrismAPI",
-    version="1.0.0",
+    title=settings.APP_NAME,
+    version=settings.VERSION,
     lifespan=lifespan,
 )
 
